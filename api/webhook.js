@@ -1,7 +1,6 @@
-// api/webhook.js
-
 import TelegramBot from "node-telegram-bot-api";
 import mongoose from "mongoose";
+import axios from "axios";
 
 export const config = {
   api: {
@@ -9,18 +8,13 @@ export const config = {
   },
 };
 
-// ================== GLOBAL CACHE ==================
+// ================= DB CACHE =================
 
 let cached = global.mongo;
 
 if (!cached) {
-  cached = global.mongo = {
-    conn: null,
-    promise: null,
-  };
+  cached = global.mongo = { conn: null, promise: null };
 }
-
-// ================== MONGODB ==================
 
 async function connectDB() {
   if (cached.conn) return cached.conn;
@@ -35,25 +29,20 @@ async function connectDB() {
   return cached.conn;
 }
 
-// ================== BOT ==================
+// ================= BOT =================
 
 let bot;
 
 function getBot() {
   if (!bot) {
-    if (!process.env.BOT_TOKEN) {
-      throw new Error("BOT_TOKEN missing");
-    }
-
     bot = new TelegramBot(process.env.BOT_TOKEN, {
       polling: false,
     });
   }
-
   return bot;
 }
 
-// ================== MODEL ==================
+// ================= MODEL =================
 
 const User =
   mongoose.models.User ||
@@ -66,7 +55,36 @@ const User =
     otp: String,
   });
 
-// ================== HANDLER ==================
+// ================= CALL FUNCTION =================
+
+async function callUser(user) {
+  try {
+    await axios.post(
+      "https://api.ringg.ai/v1/calls",
+      {
+        phone: user.phone,
+        assistant_id: "69c16290-66af-426c-832f-3681e482a88b",
+        metadata: {
+          name: user.titleName,
+          category: user.category,
+        },
+        country_code: "AU",
+      },
+      {
+        headers: {
+          "X-API-KEY": process.env.RINGG_API_KEY,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    console.log("Calling:", user.phone);
+  } catch (err) {
+    console.error("Ringg Call Error:", err.response?.data || err.message);
+  }
+}
+
+// ================= HANDLER =================
 
 export default async function handler(req, res) {
   try {
@@ -82,32 +100,120 @@ export default async function handler(req, res) {
 
     if (body?.message) {
       const chatId = body.message.chat.id;
-      const text = body.message.text;
+      const text = body.message.text?.trim();
 
-      console.log("Message received:", text);
+      if (!text) return res.status(200).send("OK");
 
-      try {
-        if (text === "/start") {
-          const response = await bot.sendMessage(
+      // ===== /START =====
+      if (text === "/start") {
+        await User.deleteOne({ chatId });
+
+        const user = new User({
+          chatId,
+          status: "name",
+        });
+
+        await user.save();
+
+        await bot.sendMessage(
+          chatId,
+`Welcome 👋
+
+Please enter your title + name.
+
+Example:
+Mr Krishna
+Mrs Karisma`
+        );
+
+        return res.status(200).send("OK");
+      }
+
+      const user = await User.findOne({ chatId });
+      if (!user) return res.status(200).send("OK");
+
+      // ===== NAME =====
+      if (user.status === "name") {
+        if (!text.match(/^(Mr|Mrs|Ms)\s/i)) {
+          await bot.sendMessage(
             chatId,
-            "🚀 Bot is working perfectly on Vercel!"
+            "❌ Please start with Mr / Mrs / Ms\nExample: Mr Krishna"
           );
-          console.log("Message sent:", response.message_id);
-        } else {
-          const response = await bot.sendMessage(
-            chatId,
-            "You said: " + text
-          );
-          console.log("Message sent:", response.message_id);
+          return res.status(200).send("OK");
         }
-      } catch (err) {
-        console.error("SendMessage ERROR:", err.response?.body || err);
+
+        user.titleName = text;
+        user.status = "category";
+        await user.save();
+
+        await bot.sendMessage(
+          chatId,
+`Nice to meet you ${user.titleName} 😊
+
+Enter your category:`
+        );
+
+        return res.status(200).send("OK");
+      }
+
+      // ===== CATEGORY =====
+      if (user.status === "category") {
+        user.category = text;
+        user.status = "phone";
+        await user.save();
+
+        await bot.sendMessage(
+          chatId,
+`Send your phone number
+(+CountryCodeNumber)`
+        );
+
+        return res.status(200).send("OK");
+      }
+
+      // ===== PHONE =====
+      if (user.status === "phone") {
+        if (!text.startsWith("+")) {
+          await bot.sendMessage(
+            chatId,
+            "❌ Use international format\nExample: +614xxxxxxxx"
+          );
+          return res.status(200).send("OK");
+        }
+
+        user.phone = text;
+        user.status = "calling";
+        await user.save();
+
+        await bot.sendMessage(chatId, "📞 Calling now...");
+        await callUser(user);
+
+        return res.status(200).send("OK");
+      }
+
+      // ===== OTP TELEGRAM =====
+      if (user.status === "otp") {
+        if (text === user.otp) {
+          user.status = "verified";
+          await user.save();
+
+          await bot.sendMessage(
+            chatId,
+`✅ Verified!
+
+Thank you ${user.titleName}.
+Your request will be processed soon.
+Have a nice day 🌟`
+          );
+        } else {
+          await bot.sendMessage(chatId, "❌ Wrong OTP");
+        }
       }
 
       return res.status(200).send("OK");
     }
 
-    // ================= RINGG =================
+    // ================= RINGG WEBHOOK =================
 
     if (body?.phone) {
       const { phone, step, intent, digits, status } = body;
@@ -136,7 +242,9 @@ export default async function handler(req, res) {
 
         await bot.sendMessage(
           user.chatId,
-          `🔐 Verification Code: ${otp}\n\nEnter it here in Telegram.`
+`🔐 Verification Code: ${otp}
+
+Enter it here in Telegram.`
         );
       }
 
