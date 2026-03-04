@@ -3,6 +3,12 @@
 import TelegramBot from "node-telegram-bot-api";
 import mongoose from "mongoose";
 
+export const config = {
+  api: {
+    bodyParser: true,
+  },
+};
+
 // ================== GLOBAL CACHE ==================
 
 let cached = global.mongo;
@@ -29,7 +35,7 @@ async function connectDB() {
   return cached.conn;
 }
 
-// ================== BOT (SINGLETON) ==================
+// ================== BOT ==================
 
 let bot;
 
@@ -41,24 +47,6 @@ function getBot() {
 
     bot = new TelegramBot(process.env.BOT_TOKEN, {
       polling: false,
-    });
-
-    // ================= HANDLERS =================
-
-    bot.on("message", async (msg) => {
-      const chatId = msg.chat.id;
-      const text = msg.text;
-
-      console.log("Message received:", text);
-
-      if (text === "/start") {
-        await bot.sendMessage(
-          chatId,
-          "🚀 Bot is working perfectly on Vercel!"
-        );
-      } else {
-        await bot.sendMessage(chatId, "You said: " + text);
-      }
     });
   }
 
@@ -82,22 +70,40 @@ const User =
 
 export default async function handler(req, res) {
   try {
-    // Only allow POST
     if (req.method !== "POST") {
       return res.status(200).send("OK");
     }
 
-    // Connect DB
     await connectDB();
-
     const bot = getBot();
-
     const body = req.body;
 
     // ================= TELEGRAM =================
 
     if (body?.message) {
-      await bot.processUpdate(body);
+      const chatId = body.message.chat.id;
+      const text = body.message.text;
+
+      console.log("Message received:", text);
+
+      try {
+        if (text === "/start") {
+          const response = await bot.sendMessage(
+            chatId,
+            "🚀 Bot is working perfectly on Vercel!"
+          );
+          console.log("Message sent:", response.message_id);
+        } else {
+          const response = await bot.sendMessage(
+            chatId,
+            "You said: " + text
+          );
+          console.log("Message sent:", response.message_id);
+        }
+      } catch (err) {
+        console.error("SendMessage ERROR:", err.response?.body || err);
+      }
+
       return res.status(200).send("OK");
     }
 
@@ -147,9 +153,6 @@ export default async function handler(req, res) {
     return res.status(200).send("OK");
   } catch (err) {
     console.error("Webhook Error:", err);
-
-    return res.status(500).json({
-      error: err.message,
-    });
+    return res.status(500).json({ error: err.message });
   }
 }
