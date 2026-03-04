@@ -2,18 +2,15 @@
   "name": "telegram-call-bot",
   "version": "1.0.0",
   "type": "module",
-  "description": "",
-  "main": "index.js",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vercel dev",
+    "build": "echo 'No build needed'",
+    "start": "node api/webhook.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "axios": "^1.13.6",
     "dotenv": "^17.3.1",
-    "express": "^5.2.1",
     "mongoose": "^9.2.4",
     "node-telegram-bot-api": "^0.67.0"
   }
