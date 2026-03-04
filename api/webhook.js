@@ -68,15 +68,12 @@ const User =
 async function callUser(user) {
   try {
     await axios.post(
-      "https://api.ringg.ai/v1/calls",
+      "https://prod-api.ringg.ai/ca/api/v0/calling/outbound/individual",
       {
-        phone: user.phone,
-        assistant_id: "69c16290-66af-426c-832f-3681e482a88b",
-        metadata: {
-          name: user.titleName,
-          category: user.category,
-        },
-        country_code: "AU",
+        name: user.titleName,
+        mobile_number: user.phone,
+        agent_id: "69c16290-66af-426c-832f-3681e482a88b", // your real agent_id
+        from_number: "+61363165719", // your Twilio number from dashboard
       },
       {
         headers: {
@@ -225,7 +222,8 @@ Have a nice day 🌟`
     }
 
     // ================= RINGG WEBHOOK =================
-    if (body?.phone) {
+     if (body) {
+     console.log("Ringg Webhook Payload:", body);
       const { phone, step, intent, digits, status } = body;
 
       const user = await User.findOne({ phone });
