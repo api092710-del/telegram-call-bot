@@ -1,7 +1,14 @@
 {
+  "version": 2,
   "functions": {
-    "api/webhook.js": {
+    "api/*.js": {
       "runtime": "nodejs18.x"
     }
-  }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    }
+  ]
 }
