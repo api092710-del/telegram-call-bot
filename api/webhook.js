@@ -42,6 +42,24 @@ function getBot() {
     bot = new TelegramBot(process.env.BOT_TOKEN, {
       polling: false,
     });
+
+    // ================= HANDLERS =================
+
+    bot.on("message", async (msg) => {
+      const chatId = msg.chat.id;
+      const text = msg.text;
+
+      console.log("Message received:", text);
+
+      if (text === "/start") {
+        await bot.sendMessage(
+          chatId,
+          "🚀 Bot is working perfectly on Vercel!"
+        );
+      } else {
+        await bot.sendMessage(chatId, "You said: " + text);
+      }
+    });
   }
 
   return bot;
