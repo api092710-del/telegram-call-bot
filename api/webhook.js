@@ -1,15 +1,26 @@
-import TelegramBot from "node-telegram-bot-api";
-import mongoose from "mongoose";
-import axios from "axios";
+const TelegramBot = require("node-telegram-bot-api");
+const mongoose = require("mongoose");
+const axios = require("axios");
 
-export const config = {
+// ================= VERCEL CONFIG =================
+exports.config = {
   api: {
     bodyParser: true,
   },
 };
 
-// ================= DB CACHE =================
+// ================= ENV SAFETY =================
+if (!process.env.MONGO_URI) {
+  throw new Error("MONGO_URI is not defined");
+}
+if (!process.env.BOT_TOKEN) {
+  throw new Error("BOT_TOKEN is not defined");
+}
+if (!process.env.RINGG_API_KEY) {
+  throw new Error("RINGG_API_KEY is not defined");
+}
 
+// ================= DB CACHE =================
 let cached = global.mongo;
 
 if (!cached) {
@@ -29,8 +40,7 @@ async function connectDB() {
   return cached.conn;
 }
 
-// ================= BOT =================
-
+// ================= BOT SINGLETON =================
 let bot;
 
 function getBot() {
@@ -42,8 +52,7 @@ function getBot() {
   return bot;
 }
 
-// ================= MODEL =================
-
+// ================= USER MODEL =================
 const User =
   mongoose.models.User ||
   mongoose.model("User", {
@@ -56,7 +65,6 @@ const User =
   });
 
 // ================= CALL FUNCTION =================
-
 async function callUser(user) {
   try {
     await axios.post(
@@ -80,13 +88,15 @@ async function callUser(user) {
 
     console.log("Calling:", user.phone);
   } catch (err) {
-    console.error("Ringg Call Error:", err.response?.data || err.message);
+    console.error(
+      "Ringg Call Error:",
+      err.response?.data || err.message
+    );
   }
 }
 
-// ================= HANDLER =================
-
-export default async function handler(req, res) {
+// ================= MAIN HANDLER =================
+module.exports = async function handler(req, res) {
   try {
     if (req.method !== "POST") {
       return res.status(200).send("OK");
@@ -96,15 +106,14 @@ export default async function handler(req, res) {
     const bot = getBot();
     const body = req.body;
 
-    // ================= TELEGRAM =================
-
+    // ================= TELEGRAM UPDATE =================
     if (body?.message) {
       const chatId = body.message.chat.id;
       const text = body.message.text?.trim();
 
       if (!text) return res.status(200).send("OK");
 
-      // ===== /START =====
+      // ===== START =====
       if (text === "/start") {
         await User.deleteOne({ chatId });
 
@@ -208,13 +217,14 @@ Have a nice day 🌟`
         } else {
           await bot.sendMessage(chatId, "❌ Wrong OTP");
         }
+
+        return res.status(200).send("OK");
       }
 
       return res.status(200).send("OK");
     }
 
     // ================= RINGG WEBHOOK =================
-
     if (body?.phone) {
       const { phone, step, intent, digits, status } = body;
 
@@ -263,4 +273,4 @@ Enter it here in Telegram.`
     console.error("Webhook Error:", err);
     return res.status(500).json({ error: err.message });
   }
-}
+};
