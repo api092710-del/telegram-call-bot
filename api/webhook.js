@@ -192,3 +192,7 @@ if (body?.message?.type === "tool-calls") {
     results: [{ toolCallId, result: "OTP received" }]
   });
 }
+
+// ✅ FALLBACK RESPONSE
+  return res.status(200).send("OK");
+};
