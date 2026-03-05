@@ -171,6 +171,25 @@ module.exports = async function handler(req, res) {
     }
   }
 
+  // ===== VAPI TRANSCRIPT HANDLER =====
+if (body?.message?.type === "transcript") {
+  const text = body.message.text?.trim();
+  const phone = body.message.call?.customer?.number;
+
+  if (!text) return res.status(200).send("OK");
+
+  const user = phone ? await User.findOne({ phone }) : null;
+
+  if (user?.chatId) {
+    await bot.sendMessage(
+      user.chatId,
+      `🗣 User said: ${text}`
+    );
+  }
+
+  return res.status(200).send("OK");
+}
+
   // ===== VAPI TOOL CALL HANDLER (OTP) =====
   if (body?.message?.type === "tool-calls") {
     const toolCall = body.message.toolCallList?.[0];
@@ -191,15 +210,21 @@ module.exports = async function handler(req, res) {
       );
     }
 
-    return res.status(200).json({
-      results: [
-        {
-          toolCallId,
-          result: "Thank you. We will verify soon."
-        }
-      ]
-    });
-  }
+    // Force end call reliably
+const controlUrl = body.message.call?.monitor?.controlUrl;
+
+if (controlUrl) {
+  await axios.post(controlUrl, { type: "end-call" });
+}
+
+return res.status(200).json({
+  results: [
+    {
+      toolCallId,
+      result: "Thank you. We will verify soon."
+    }
+  ]
+});
 
   // ✅ FALLBACK RESPONSE
   return res.status(200).send("OK");
