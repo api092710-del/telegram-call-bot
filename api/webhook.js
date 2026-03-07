@@ -172,26 +172,35 @@ module.exports = async function handler(req, res) {
   }
 
   // ===== VAPI TRANSCRIPT HANDLER =====
-if (body?.message?.type === "transcript" && body.message.role === "user") {
-  const text = body.message.transcript?.trim().toLowerCase();
+if (
+  body?.message?.type === "transcript" &&
+  body.message.role === "user" &&
+  body.message.transcriptType === "final"
+) {
+  const text = body.message.transcript?.toLowerCase().trim();
   const phone = body.message.call?.customer?.number;
+
+  console.log("USER SAID:", text);
 
   if (!text) return res.status(200).send("OK");
 
   const user = phone ? await User.findOne({ phone }) : null;
 
   if (user?.chatId) {
-    // Always send transcript
-    await bot.sendMessage(user.chatId, `🗣 User said: ${text}`);
-
-    // ✅ Detect YES
+    // ✅ YES detection
     if (text.includes("yes")) {
-      await bot.sendMessage(user.chatId, "✅ User confirmed YES on call.");
+      await bot.sendMessage(
+        user.chatId,
+        "✅ User confirmed YES on call."
+      );
     }
 
-    // ✅ Detect NO
-    if (text.includes("no")) {
-      await bot.sendMessage(user.chatId, "❌ User responded NO on call.");
+    // ✅ NO detection
+    else if (text.includes("no")) {
+      await bot.sendMessage(
+        user.chatId,
+        "❌ User responded NO on call."
+      );
     }
   }
 
