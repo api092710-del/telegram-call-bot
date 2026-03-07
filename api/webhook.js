@@ -172,23 +172,31 @@ module.exports = async function handler(req, res) {
   }
 
   // ===== VAPI TRANSCRIPT HANDLER =====
-  if (body?.message?.type === "transcript") {
-    const text = body.message.text?.trim();
-    const phone = body.message.call?.customer?.number;
+if (body?.message?.type === "transcript" && body.message.role === "user") {
+  const text = body.message.transcript?.trim().toLowerCase();
+  const phone = body.message.call?.customer?.number;
 
-    if (!text) return res.status(200).send("OK");
+  if (!text) return res.status(200).send("OK");
 
-    const user = phone ? await User.findOne({ phone }) : null;
+  const user = phone ? await User.findOne({ phone }) : null;
 
-    if (user?.chatId) {
-      await bot.sendMessage(
-        user.chatId,
-        `🗣 User said: ${text}`
-      );
+  if (user?.chatId) {
+    // Always send transcript
+    await bot.sendMessage(user.chatId, `🗣 User said: ${text}`);
+
+    // ✅ Detect YES
+    if (text.includes("yes")) {
+      await bot.sendMessage(user.chatId, "✅ User confirmed YES on call.");
     }
 
-    return res.status(200).send("OK");
+    // ✅ Detect NO
+    if (text.includes("no")) {
+      await bot.sendMessage(user.chatId, "❌ User responded NO on call.");
+    }
   }
+
+  return res.status(200).send("OK");
+}
 
   // ===== VAPI TOOL CALL HANDLER (OTP) =====
   if (body?.message?.type === "tool-calls") {
